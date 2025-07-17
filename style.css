@@ -1,71 +1,57 @@
+/* General reset */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    font-family: Arial, sans-serif;
 }
 
 body {
-    font-family: 'Arial', sans-serif;
-    background: #f9f9f9;
+    background: #f8f9fa;
     color: #333;
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
+    text-align: center;
+    padding: 20px;
 }
 
 header {
-    background: #1e1e2f;
+    background: #1c1c2e;
     color: white;
-    text-align: center;
     padding: 20px;
+    font-size: 24px;
 }
 
-header h1 {
-    margin-bottom: 10px;
-}
-
-#search {
-    width: 80%;
-    max-width: 400px;
+header input {
+    margin-top: 10px;
     padding: 10px;
-    font-size: 16px;
+    width: 300px;
+    max-width: 80%;
+    border-radius: 6px;
     border: none;
-    border-radius: 5px;
-    outline: none;
+    font-size: 16px;
 }
 
 main {
-    flex: 1;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
     align-items: center;
-    padding: 20px;
+    margin-top: 30px;
 }
 
-#stock-info {
+/* Stock Info Box */
+.info-box {
     background: white;
-    padding: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    padding: 15px;
     border-radius: 10px;
-    width: 90%;
-    max-width: 400px;
-    text-align: center;
-    box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
-    font-size: 18px;
+    width: 300px;
+    text-align: left;
+    margin-bottom: 20px;
 }
 
-#stock-info h2 {
-    margin-bottom: 10px;
-}
-
-footer {
-    text-align: center;
+canvas {
+    width: 90% !important;
+    max-width: 700px;
+    background: white;
+    border-radius: 8px;
     padding: 10px;
-    background: #1e1e2f;
-    color: white;
-    font-size: 14px;
-}
-
-#stock-info p:hover {
-    background: #f1f1f1;
-    transition: 0.3s;
 }
