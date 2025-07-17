@@ -10,48 +10,86 @@ body {
     background: #f8f9fa;
     color: #333;
     text-align: center;
-    padding: 20px;
+    padding: 0;
 }
 
+/* Ticker Bar */
+.ticker-bar {
+    background: #0d1117;
+    color: #f1f1f1;
+    padding: 10px;
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+    font-size: 16px;
+}
+
+.ticker-content {
+    display: inline-block;
+    padding-left: 100%;
+    animation: ticker 20s linear infinite;
+}
+
+@keyframes ticker {
+    0% { transform: translateX(0%); }
+    100% { transform: translateX(-100%); }
+}
+
+.ticker-bar span {
+    margin-right: 40px;
+    font-weight: bold;
+}
+
+/* Header */
 header {
     background: #1c1c2e;
     color: white;
     padding: 20px;
     font-size: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 
 header input {
     margin-top: 10px;
     padding: 10px;
-    width: 300px;
+    width: 320px;
     max-width: 80%;
     border-radius: 6px;
     border: none;
     font-size: 16px;
 }
 
+/* Main Section */
 main {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-top: 30px;
+    justify-content: center;
+    margin: 30px auto;
+    width: 100%;
 }
 
 /* Stock Info Box */
 .info-box {
     background: white;
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    padding: 15px;
+    padding: 20px;
     border-radius: 10px;
-    width: 300px;
+    width: 320px;
     text-align: left;
     margin-bottom: 20px;
 }
 
+/* Chart Container */
 canvas {
     width: 90% !important;
     max-width: 700px;
     background: white;
     border-radius: 8px;
     padding: 10px;
+    display: block;
+    margin: 0 auto;
 }
