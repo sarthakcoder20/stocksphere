@@ -13,8 +13,9 @@
     </header>
 
     <main>
-        <div id="stock-info">Enter a stock symbol and press Enter.</div>
-        <!-- Added chart canvas -->
+        <div id="stock-info" class="info-box">
+            Enter a stock symbol and press Enter.
+        </div>
         <canvas id="stockChart" width="400" height="200" style="margin-top:20px;"></canvas>
     </main>
 
@@ -22,7 +23,6 @@
         <p>Powered by Alpha Vantage API</p>
     </footer>
 
-    <!-- Added Chart.js script before your script.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="script.js" defer></script>
 </body>
