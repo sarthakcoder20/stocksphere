@@ -1,33 +1,30 @@
-/* ---------------- CONFIG ---------------- */
-const apiKey = "IWXEMN3H3LHZMIP8"; // <-- your key
-const topStocks = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"]; // NYSE
-const TICKER_REFRESH_MS = 180000;   // refresh display every 3m (uses cache)
-const QUOTE_CACHE_TTL_MS = 10 * 60 * 1000; // 10m cache to avoid API hammering
-/* ---------------------------------------- */
+/* ------------ CONFIG ------------ */
+const apiKey = "IWXEMN3H3LHZMIP8"; // your key
+const topStocks = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"];
+const QUOTE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const TICKER_CYCLE_DELAY_MS = 12000;       // 12s between ticker fetches -> <=5/min
+/* -------------------------------- */
 
-/* DOM */
+/* DOM refs */
 const searchInput   = document.getElementById("search");
 const stockInfo     = document.getElementById("stock-info");
 const tickerContent = document.getElementById("ticker-content");
 let stockChart;
 
-/* In‑memory cache: {SYM: {price, change, changePct, ts}} */
+/* cache {SYM: {price, change, changePct, ts}} */
 const quoteCache = {};
 
-/* ---------- Helpers ---------- */
-function isFresh(ts) {
-    return Date.now() - ts < QUOTE_CACHE_TTL_MS;
-}
+/* util */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const now   = () => Date.now();
+const safeUpper = s => (s || "").trim().toUpperCase();
+const isFresh = ts => now() - ts < QUOTE_CACHE_TTL_MS;
 
-function safeUpper(s) {
-    return (s || "").trim().toUpperCase();
-}
-
-/* Fetch a single real‑time quote (cached) */
+/* ------------ QUOTE FETCH (with cache + rate-limit detect) ------------ */
 async function getQuote(symbol) {
     symbol = safeUpper(symbol);
 
-    // Use cache if fresh
+    // cache hit?
     const cached = quoteCache[symbol];
     if (cached && isFresh(cached.ts)) return cached;
 
@@ -36,16 +33,15 @@ async function getQuote(symbol) {
     try {
         const resp = await fetch(url);
         const data = await resp.json();
-        // console.log(symbol, data); // uncomment for debugging
+        // console.log("QUOTE", symbol, data);
 
         if (data.Note || data.Information) {
-            // Rate limited
-            return { symbol, apiLimited: true, ts: Date.now() };
+            return { symbol, apiLimited: true, ts: now() };
         }
 
         const q = data["Global Quote"];
         if (!q || !q["05. price"]) {
-            return { symbol, invalid: true, ts: Date.now() };
+            return { symbol, invalid: true, ts: now() };
         }
 
         const out = {
@@ -53,41 +49,54 @@ async function getQuote(symbol) {
             price: parseFloat(q["05. price"]).toFixed(2),
             change: q["09. change"] ?? "—",
             changePct: q["10. change percent"] ?? "—",
-            ts: Date.now()
+            ts: now()
         };
-        quoteCache[symbol] = out; // cache good result
+        quoteCache[symbol] = out;
         return out;
     } catch (err) {
-        return { symbol, error: true, ts: Date.now() };
+        return { symbol, error: true, ts: now() };
     }
 }
 
-/* ---------- Ticker Bar ---------- */
-async function renderTicker() {
+/* ------------ TICKER BAR ------------ */
+/* Fetch each symbol one at a time, spaced out, so we never exceed quota. */
+async function cycleTickerFetch() {
     if (!tickerContent) return;
 
-    let html = "";
-    for (const sym of topStocks) {
+    let htmlParts = [];
+    for (let i = 0; i < topStocks.length; i++) {
+        const sym = topStocks[i];
         const q = await getQuote(sym);
 
+        let frag;
         if (q.apiLimited) {
-            html += `<span>${sym}: API Limit</span>`;
+            frag = `<span>${sym}: API Limit</span>`;
         } else if (q.error) {
-            html += `<span>${sym}: Error</span>`;
+            frag = `<span>${sym}: Error</span>`;
         } else if (q.invalid || !q.price) {
-            html += `<span>${sym}: N/A</span>`;
+            frag = `<span>${sym}: N/A</span>`;
         } else {
-            html += `<span>${sym}: $${q.price}</span>`;
+            frag = `<span>${sym}: $${q.price}</span>`;
+        }
+
+        htmlParts.push(frag);
+        tickerContent.innerHTML = htmlParts.join(""); // update progressively
+
+        // pause before next API call (except after the last one)
+        if (i < topStocks.length - 1) {
+            await sleep(TICKER_CYCLE_DELAY_MS);
         }
     }
-    tickerContent.innerHTML = html;
+
+    // after finishing all, wait long enough so the next full cycle won't hit limits
+    await sleep(QUOTE_CACHE_TTL_MS); // 10m pause before fresh fetches
+    cycleTickerFetch();              // repeat
 }
 
-// Initial render + periodic refresh (uses cache; few actual API calls)
-renderTicker();
-setInterval(renderTicker, TICKER_REFRESH_MS);
+// start ticker cycle
+cycleTickerFetch();
 
-/* ---------- Search & Detail ---------- */
+/* ------------ SEARCH + DETAIL ------------ */
 searchInput.addEventListener("keypress", async (e) => {
     if (e.key !== "Enter") return;
 
@@ -110,11 +119,10 @@ searchInput.addEventListener("keypress", async (e) => {
         return;
     }
     if (q.invalid || !q.price) {
-        stockInfo.innerHTML = `<p>Stock not found. Try another symbol.</p>`;
+        stockInfo.innerHTML = `<p>Stock not found. Check ticker (try AAPL, MSFT, META).</p>`;
         return;
     }
 
-    // Show quote
     stockInfo.innerHTML = `
         <h2>${symbol}</h2>
         <p><strong>Price:</strong> $${q.price}</p>
@@ -122,11 +130,10 @@ searchInput.addEventListener("keypress", async (e) => {
         <p><strong>Change %:</strong> ${q.changePct}</p>
     `;
 
-    // Fetch historical data for chart
     await fetchChartData(symbol);
 });
 
-/* ---------- Historical Chart ---------- */
+/* ------------ HISTORICAL DATA FOR CHART ------------ */
 async function fetchChartData(symbol) {
     const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
 
@@ -154,7 +161,7 @@ async function fetchChartData(symbol) {
     }
 }
 
-/* ---------- Chart Render ---------- */
+/* ------------ CHART RENDER ------------ */
 function renderChart(labels, dataPoints, symbol) {
     const canvas = document.getElementById('stockChart');
     if (!canvas) return;
