@@ -44,8 +44,20 @@ main {
     padding: 15px;
     border-radius: 10px;
     width: 300px;
+    max-width: 90%;
     text-align: left;
     margin-bottom: 20px;
+    line-height: 1.4;
+}
+
+.info-box h2 {
+    margin-bottom: 8px;
+    font-size: 20px;
+}
+
+.info-box p {
+    margin: 4px 0;
+    font-size: 16px;
 }
 
 canvas {
@@ -54,4 +66,11 @@ canvas {
     background: white;
     border-radius: 8px;
     padding: 10px;
+}
+
+/* Footer */
+footer {
+    margin-top: 40px;
+    font-size: 14px;
+    color: #666;
 }
