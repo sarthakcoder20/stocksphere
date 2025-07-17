@@ -3,7 +3,35 @@ const searchInput = document.getElementById("search");
 const stockInfo = document.getElementById("stock-info");
 let stockChart; // For updating the chart later
 
-// Event listener for Enter key
+// -------------------- TICKER BAR LOGIC --------------------
+const topStocks = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"]; // Top NYSE stocks
+const tickerContent = document.getElementById("ticker-content");
+
+async function fetchTickerData() {
+    let tickerHTML = "";
+    for (let symbol of topStocks) {
+        const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data["Global Quote"] && data["Global Quote"]["05. price"]) {
+                const price = parseFloat(data["Global Quote"]["05. price"]).toFixed(2);
+                tickerHTML += `<span>${symbol}: $${price}</span>`;
+            } else {
+                tickerHTML += `<span>${symbol}: N/A</span>`;
+            }
+        } catch {
+            tickerHTML += `<span>${symbol}: Error</span>`;
+        }
+    }
+    tickerContent.innerHTML = tickerHTML;
+}
+
+// Initial fetch and refresh every 60 seconds
+fetchTickerData();
+setInterval(fetchTickerData, 60000);
+
+// -------------------- SEARCH & CHART LOGIC --------------------
 searchInput.addEventListener("keypress", async (e) => {
     if (e.key === "Enter") {
         const symbol = e.target.value.toUpperCase();
@@ -25,7 +53,7 @@ searchInput.addEventListener("keypress", async (e) => {
                 const quote = data["Global Quote"];
                 stockInfo.innerHTML = `
                     <h2>${symbol}</h2>
-                    <p><strong>Price:</strong> ₹${quote["05. price"]}</p>
+                    <p><strong>Price:</strong> $${quote["05. price"]}</p>
                     <p><strong>Change:</strong> ${quote["09. change"]}</p>
                     <p><strong>Change %:</strong> ${quote["10. change percent"]}</p>
                 `;
