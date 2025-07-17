@@ -1,107 +1,82 @@
 /* ------------ CONFIG ------------ */
+const apiKey = "YOUR_ALPHA_VANTAGE_KEY";
 const topStocks = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"];
-const QUOTE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 min cache
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 min cache
 /* -------------------------------- */
 
-const searchInput    = document.getElementById("search");
-const stockInfo      = document.getElementById("stock-info");
-const tickerContent  = document.getElementById("ticker-content");
+const searchInput = document.getElementById("search");
+const stockInfo = document.getElementById("stock-info");
+const tickerContent = document.getElementById("ticker-content");
 let stockChart;
-const quoteCache = {}; // {SYM:{...}}
+const cache = {}; // {SYM: {price, ts}}
 
 /* Helpers */
 const now = () => Date.now();
 const safeUpper = s => (s || "").trim().toUpperCase();
-const isFresh = ts => now() - ts < QUOTE_CACHE_TTL_MS;
+const isFresh = ts => now() - ts < CACHE_TTL_MS;
 
-/* -----------------------------------------------------------
-   FETCH MULTIPLE QUOTES (Ticker use)
-   ----------------------------------------------------------- */
-async function fetchMultiQuotes(symbols) {
-    const list = symbols.map(safeUpper).join(",");
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(list)}`;
-
-    try {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-
-        const results = data?.quoteResponse?.result || [];
-        const out = {};
-
-        // map symbols -> result objects
-        for (const s of symbols) {
-            const up = safeUpper(s);
-            const match = results.find(r => safeUpper(r.symbol) === up);
-            if (!match || match.regularMarketPrice == null) {
-                out[up] = { symbol: up, invalid: true, ts: now() };
-            } else {
-                out[up] = {
-                    symbol: up,
-                    price: Number(match.regularMarketPrice).toFixed(2),
-                    change: Number(match.regularMarketChange || 0).toFixed(2),
-                    changePct: Number(match.regularMarketChangePercent || 0).toFixed(2) + "%",
-                    ts: now()
-                };
-            }
-            quoteCache[up] = out[up]; // cache each
-        }
-
-        return out;
-    } catch (err) {
-        console.error("fetchMultiQuotes error:", err);
-        // mark all as error
-        const out = {};
-        for (const s of symbols) {
-            const up = safeUpper(s);
-            out[up] = { symbol: up, error: true, ts: now() };
-        }
-        return out;
-    }
-}
-
-/* -----------------------------------------------------------
-   FETCH SINGLE QUOTE (Search use; uses cache, then network)
-   ----------------------------------------------------------- */
+/* ------------ Fetch Stock Quote ------------ */
 async function getQuote(symbol) {
     symbol = safeUpper(symbol);
 
-    const cached = quoteCache[symbol];
-    if (cached && isFresh(cached.ts)) return cached;
+    if (cache[symbol] && isFresh(cache[symbol].ts)) {
+        return cache[symbol];
+    }
 
-    // Reuse multi-quote call pattern (single symbol)
-    const res = await fetchMultiQuotes([symbol]);
-    return res[symbol];
+    const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+
+    try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        if (data.Note || data.Information) {
+            return { error: "API limit reached" };
+        }
+
+        const q = data["Global Quote"];
+        if (!q || !q["05. price"]) {
+            return { error: "Invalid symbol" };
+        }
+
+        const result = {
+            price: parseFloat(q["05. price"]).toFixed(2),
+            change: q["09. change"],
+            changePct: q["10. change percent"],
+            ts: now()
+        };
+        cache[symbol] = result;
+        return result;
+    } catch {
+        return { error: "Fetch failed" };
+    }
 }
 
-/* -----------------------------------------------------------
-   RENDER TICKER BAR
-   ----------------------------------------------------------- */
+/* ------------ Ticker Bar ------------ */
 async function renderTicker() {
-    if (!tickerContent) return;
-    const data = await fetchMultiQuotes(topStocks);
+    let html = "";
 
-    const html = topStocks.map(sym => {
-        const q = data[safeUpper(sym)];
-        if (q.error)   return `<span>${sym}: Error</span>`;
-        if (q.invalid) return `<span>${sym}: N/A</span>`;
-        return `<span>${sym}: $${q.price}</span>`;
-    }).join(" ");
+    for (const sym of topStocks) {
+        const q = await getQuote(sym);
+        if (q.error) {
+            html += `<span>${sym}: ${q.error.includes("limit") ? "API Limit" : "N/A"}</span>`;
+        } else {
+            html += `<span>${sym}: $${q.price}</span>`;
+        }
+        await new Promise(r => setTimeout(r, 12000)); // 12s delay per symbol (to avoid hitting limit)
+    }
 
     tickerContent.innerHTML = html;
+
+    setTimeout(renderTicker, CACHE_TTL_MS); // refresh every 10 min
 }
 
-// initial + periodic refresh (cache prevents heavy network load)
 renderTicker();
-setInterval(renderTicker, QUOTE_CACHE_TTL_MS); // every 10 min
 
-/* -----------------------------------------------------------
-   SEARCH HANDLER
-   ----------------------------------------------------------- */
+/* ------------ Search + Detail ------------ */
 searchInput.addEventListener("keypress", async (e) => {
     if (e.key !== "Enter") return;
-    const symbol = safeUpper(e.target.value);
 
+    const symbol = safeUpper(e.target.value);
     if (!symbol) {
         stockInfo.innerHTML = "Please enter a stock symbol.";
         return;
@@ -111,11 +86,7 @@ searchInput.addEventListener("keypress", async (e) => {
     const q = await getQuote(symbol);
 
     if (q.error) {
-        stockInfo.innerHTML = `<p>Error fetching data (network or CORS). Try again.</p>`;
-        return;
-    }
-    if (q.invalid || !q.price) {
-        stockInfo.innerHTML = `<p>Stock not found. Try AAPL, MSFT, META.</p>`;
+        stockInfo.innerHTML = `<p>${q.error}. Try again later.</p>`;
         return;
     }
 
@@ -129,56 +100,37 @@ searchInput.addEventListener("keypress", async (e) => {
     await fetchChartData(symbol);
 });
 
-/* -----------------------------------------------------------
-   FETCH HISTORICAL DATA (Yahoo)
-   ----------------------------------------------------------- */
+/* ------------ Historical Data ------------ */
 async function fetchChartData(symbol) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`;
+    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${apiKey}`;
 
     try {
         const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        const result = data?.chart?.result?.[0];
 
-        if (!result) {
-            stockInfo.innerHTML += `<p style="color:red;">(No historical data.)</p>`;
+        if (data.Note || data.Information) {
+            stockInfo.innerHTML += `<p style="color:red;">API limit reached for historical data.</p>`;
             return;
         }
 
-        const { timestamp, indicators } = result;
-        const closes = indicators?.quote?.[0]?.close;
-
-        if (!timestamp || !closes) {
-            stockInfo.innerHTML += `<p style="color:red;">(Incomplete historical data.)</p>`;
+        const ts = data["Time Series (Daily)"];
+        if (!ts) {
+            stockInfo.innerHTML += `<p style="color:red;">No historical data found.</p>`;
             return;
         }
 
-        // Some close values can be null (market closed days) – filter
-        const points = [];
-        const labels = [];
-        for (let i = 0; i < timestamp.length; i++) {
-            const p = closes[i];
-            if (p == null) continue;
-            const d = new Date(timestamp[i] * 1000);
-            labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
-            points.push(Number(p));
-        }
+        const dates = Object.keys(ts).slice(0, 30).reverse();
+        const prices = dates.map(d => parseFloat(ts[d]["4. close"]));
 
-        renderChart(labels, points, symbol);
-    } catch (err) {
-        console.error("fetchChartData error:", err);
-        stockInfo.innerHTML += `<p style="color:red;">(Failed to load chart.)</p>`;
+        renderChart(dates, prices, symbol);
+    } catch {
+        stockInfo.innerHTML += `<p style="color:red;">Failed to load chart.</p>`;
     }
 }
 
-/* -----------------------------------------------------------
-   CHART RENDER
-   ----------------------------------------------------------- */
+/* ------------ Render Chart ------------ */
 function renderChart(labels, dataPoints, symbol) {
-    const canvas = document.getElementById('stockChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = document.getElementById('stockChart').getContext('2d');
 
     if (stockChart) stockChart.destroy();
 
@@ -192,19 +144,8 @@ function renderChart(labels, dataPoints, symbol) {
                 borderColor: '#007bff',
                 backgroundColor: 'rgba(0,123,255,0.1)',
                 fill: true,
-                tension: 0.2,
-                pointRadius: 2
+                tension: 0.2
             }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { labels: { color: 'black' } }
-            },
-            scales: {
-                x: { ticks: { color: 'black' } },
-                y: { ticks: { color: 'black' } }
-            }
         }
     });
 }
