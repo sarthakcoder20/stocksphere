@@ -1,131 +1,86 @@
-/* ------------ CONFIG ------------ */
-const apiKey = "YOUR_API_KEY"; // <-- replace with your Alpha Vantage key
-/* -------------------------------- */
-
+const apiKey = "YOUR_API_KEY"; // Replace with your Alpha Vantage API key
 const searchInput = document.getElementById("search");
-const stockInfo   = document.getElementById("stock-info");
-let stockChart;
+const stockInfo = document.getElementById("stock-info");
+let stockChart; // For updating the chart later
 
-/* Detect currency: INR for NSE/BSE, else USD */
-function currencyFor(symbol) {
-    const s = symbol.toUpperCase();
-    if (s.endsWith(".NSE") || s.endsWith(".BSE")) return "₹";
-    return "$";
-}
-
-/* ------------ SEARCH HANDLER ------------ */
+// Event listener for Enter key
 searchInput.addEventListener("keypress", async (e) => {
-    if (e.key !== "Enter") return;
+    if (e.key === "Enter") {
+        const symbol = e.target.value.toUpperCase();
+        if (!symbol) {
+            stockInfo.innerHTML = "Please enter a stock symbol.";
+            return;
+        }
 
-    const symbol = (e.target.value || "").trim().toUpperCase();
-    if (!symbol) {
-        stockInfo.innerHTML = "Please enter a stock symbol.";
-        return;
+        // Show loading
+        stockInfo.innerHTML = `<p>Loading...</p>`;
+
+        try {
+            // Fetch current price
+            const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data["Global Quote"] && data["Global Quote"]["05. price"]) {
+                const quote = data["Global Quote"];
+                stockInfo.innerHTML = `
+                    <h2>${symbol}</h2>
+                    <p><strong>Price:</strong> ₹${quote["05. price"]}</p>
+                    <p><strong>Change:</strong> ${quote["09. change"]}</p>
+                    <p><strong>Change %:</strong> ${quote["10. change percent"]}</p>
+                `;
+
+                // Fetch historical data for the chart
+                await fetchChartData(symbol);
+            } else {
+                stockInfo.innerHTML = `<p>Stock not found. Try another symbol.</p>`;
+            }
+        } catch (error) {
+            stockInfo.innerHTML = `<p>Error fetching data. Please try again.</p>`;
+        }
     }
-
-    stockInfo.innerHTML = `<p>Loading...</p>`;
-    const quote = await fetchQuote(symbol);
-
-    if (quote.error) {
-        stockInfo.innerHTML = `<p>${quote.error}</p>`;
-        return;
-    }
-
-    const curr = currencyFor(symbol);
-    stockInfo.innerHTML = `
-        <h2>${symbol}</h2>
-        <p><strong>Price:</strong> ${curr}${quote.price}</p>
-        <p><strong>Change:</strong> ${quote.change ?? "—"}</p>
-        <p><strong>Change %:</strong> ${quote.changePct ?? "—"}</p>
-    `;
-
-    await fetchChartData(symbol, curr);
 });
 
-/* ------------ FETCH QUOTE ------------ */
-async function fetchQuote(symbol) {
-    const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
+// Fetch historical data and render chart
+async function fetchChartData(symbol) {
+    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const timeSeries = data["Time Series (Daily)"];
 
-    try {
-        const resp = await fetch(url);
-        const data = await resp.json();
+    if (!timeSeries) return;
 
-        if (data.Note || data.Information) {
-            return { error: "API limit reached. Please wait and try again." };
-        }
+    // Get last 30 days of data
+    const dates = Object.keys(timeSeries).slice(0, 30).reverse();
+    const prices = dates.map(date => parseFloat(timeSeries[date]["4. close"]));
 
-        const q = data["Global Quote"];
-        if (!q || !q["05. price"]) {
-            return { error: "Stock not found." };
-        }
-
-        return {
-            price: parseFloat(q["05. price"]).toFixed(2),
-            change: q["09. change"],
-            changePct: q["10. change percent"]
-        };
-    } catch {
-        return { error: "Error fetching data. Please try again." };
-    }
+    renderChart(dates, prices, symbol);
 }
 
-/* ------------ FETCH HISTORICAL DATA ------------ */
-async function fetchChartData(symbol, currSymbol) {
-    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
-
-    try {
-        const resp = await fetch(url);
-        const data = await resp.json();
-
-        if (data.Note || data.Information) {
-            stockInfo.innerHTML += `<p style="color:red;">(Chart unavailable: API limit reached.)</p>`;
-            return;
-        }
-
-        const ts = data["Time Series (Daily)"];
-        if (!ts) {
-            stockInfo.innerHTML += `<p style="color:red;">(No historical data.)</p>`;
-            return;
-        }
-
-        // Last 30 entries, newest first in object → slice then reverse to chronological
-        const dates = Object.keys(ts).slice(0, 30).reverse();
-        const prices = dates.map(d => parseFloat(ts[d]["4. close"]));
-
-        renderChart(dates, prices, symbol, currSymbol);
-    } catch {
-        stockInfo.innerHTML += `<p style="color:red;">(Failed to load chart.)</p>`;
-    }
-}
-
-/* ------------ RENDER CHART ------------ */
-function renderChart(labels, dataPoints, symbol, currSymbol) {
+// Render or update the chart
+function renderChart(labels, dataPoints, symbol) {
     const ctx = document.getElementById('stockChart').getContext('2d');
 
-    if (stockChart) stockChart.destroy();
+    if (stockChart) {
+        stockChart.destroy(); // Remove old chart before creating new
+    }
 
     stockChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels,
+            labels: labels,
             datasets: [{
-                label: `${symbol} (Last 30 Days)`,
+                label: `${symbol} Stock Price (Last 30 Days)`,
                 data: dataPoints,
                 borderColor: '#007bff',
                 backgroundColor: 'rgba(0,123,255,0.1)',
                 fill: true,
-                tension: 0.2,
-                pointRadius: 2
+                tension: 0.2
             }]
         },
         options: {
             responsive: true,
             plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => `${currSymbol}${ctx.parsed.y}`
-                    }
-                },
                 legend: { labels: { color: 'black' } }
             },
             scales: {
