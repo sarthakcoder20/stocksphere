@@ -1,4 +1,4 @@
-const apiKey = "YOUR_API_KEY"; // Replace with your Alpha Vantage API key
+const apiKey = "IWXEMN3H3LHZMIP8"; // Replace with your Alpha Vantage API key
 const searchInput = document.getElementById("search");
 const stockInfo = document.getElementById("stock-info");
 let stockChart; // For updating the chart later
