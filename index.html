@@ -7,22 +7,31 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+    <!-- ✅ Ticker Bar -->
+    <div id="ticker" class="ticker-bar">
+        <div class="ticker-content" id="ticker-content">Loading prices...</div>
+    </div>
+
+    <!-- ✅ Header -->
     <header>
         <h1>StockSphere</h1>
-        <input type="text" id="search" placeholder="Search Stock (e.g., RELIANCE.NSE)">
+        <input type="text" id="search" placeholder="Search Stock (e.g., AAPL)">
     </header>
 
+    <!-- ✅ Main Section -->
     <main>
-        <div id="stock-info">Enter a stock symbol and press Enter.</div>
-        <!-- Added chart canvas -->
+        <div id="stock-info" class="info-box">Enter a stock symbol and press Enter.</div>
+        <!-- Chart Canvas -->
         <canvas id="stockChart" width="400" height="200" style="margin-top:20px;"></canvas>
     </main>
 
+    <!-- ✅ Footer -->
     <footer>
         <p>Powered by Alpha Vantage API</p>
     </footer>
 
-    <!-- Added Chart.js script before your script.js -->
+    <!-- ✅ Include Chart.js and JS -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="script.js" defer></script>
 </body>
