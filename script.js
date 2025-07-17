@@ -7,6 +7,7 @@ let stockChart; // For updating the chart later
 const topStocks = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"]; // Top NYSE stocks
 const tickerContent = document.getElementById("ticker-content");
 
+// Fetch ticker data
 async function fetchTickerData() {
     let tickerHTML = "";
     for (let symbol of topStocks) {
@@ -27,9 +28,9 @@ async function fetchTickerData() {
     tickerContent.innerHTML = tickerHTML;
 }
 
-// Initial fetch and refresh every 60 seconds
+// ✅ Initial fetch and refresh every 3 minutes (180,000 ms)
 fetchTickerData();
-setInterval(fetchTickerData, 60000);
+setInterval(fetchTickerData, 180000);
 
 // -------------------- SEARCH & CHART LOGIC --------------------
 searchInput.addEventListener("keypress", async (e) => {
@@ -40,11 +41,11 @@ searchInput.addEventListener("keypress", async (e) => {
             return;
         }
 
-        // Show loading
+        // Show loading message
         stockInfo.innerHTML = `<p>Loading...</p>`;
 
         try {
-            // Fetch current price
+            // Fetch current stock price
             const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
             const response = await fetch(url);
             const data = await response.json();
@@ -69,7 +70,7 @@ searchInput.addEventListener("keypress", async (e) => {
     }
 });
 
-// Fetch historical data and render chart
+// Fetch historical data for chart
 async function fetchChartData(symbol) {
     const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${apiKey}`;
     const response = await fetch(url);
