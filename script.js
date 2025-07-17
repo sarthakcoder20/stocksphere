@@ -1,85 +1,107 @@
 /* ------------ CONFIG ------------ */
 const topStocks = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"];
 const QUOTE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 min cache
-const TICKER_CYCLE_DELAY_MS = 5000; // 5s between calls
 /* -------------------------------- */
 
-const searchInput = document.getElementById("search");
-const stockInfo = document.getElementById("stock-info");
-const tickerContent = document.getElementById("ticker-content");
+const searchInput    = document.getElementById("search");
+const stockInfo      = document.getElementById("stock-info");
+const tickerContent  = document.getElementById("ticker-content");
 let stockChart;
-const quoteCache = {};
+const quoteCache = {}; // {SYM:{...}}
 
 /* Helpers */
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 const now = () => Date.now();
 const safeUpper = s => (s || "").trim().toUpperCase();
 const isFresh = ts => now() - ts < QUOTE_CACHE_TTL_MS;
 
-/* ------------ FETCH QUOTE (Yahoo) ------------ */
-async function getQuote(symbol) {
-    symbol = safeUpper(symbol);
-    const cached = quoteCache[symbol];
-    if (cached && isFresh(cached.ts)) return cached;
-
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
+/* -----------------------------------------------------------
+   FETCH MULTIPLE QUOTES (Ticker use)
+   ----------------------------------------------------------- */
+async function fetchMultiQuotes(symbols) {
+    const list = symbols.map(safeUpper).join(",");
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(list)}`;
 
     try {
         const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        const quote = data.quoteResponse.result[0];
 
-        if (!quote || !quote.regularMarketPrice) {
-            return { symbol, invalid: true, ts: now() };
+        const results = data?.quoteResponse?.result || [];
+        const out = {};
+
+        // map symbols -> result objects
+        for (const s of symbols) {
+            const up = safeUpper(s);
+            const match = results.find(r => safeUpper(r.symbol) === up);
+            if (!match || match.regularMarketPrice == null) {
+                out[up] = { symbol: up, invalid: true, ts: now() };
+            } else {
+                out[up] = {
+                    symbol: up,
+                    price: Number(match.regularMarketPrice).toFixed(2),
+                    change: Number(match.regularMarketChange || 0).toFixed(2),
+                    changePct: Number(match.regularMarketChangePercent || 0).toFixed(2) + "%",
+                    ts: now()
+                };
+            }
+            quoteCache[up] = out[up]; // cache each
         }
 
-        const result = {
-            symbol,
-            price: quote.regularMarketPrice.toFixed(2),
-            change: (quote.regularMarketChange || 0).toFixed(2),
-            changePct: (quote.regularMarketChangePercent || 0).toFixed(2) + "%",
-            ts: now()
-        };
-
-        quoteCache[symbol] = result;
-        return result;
-    } catch {
-        return { symbol, error: true, ts: now() };
+        return out;
+    } catch (err) {
+        console.error("fetchMultiQuotes error:", err);
+        // mark all as error
+        const out = {};
+        for (const s of symbols) {
+            const up = safeUpper(s);
+            out[up] = { symbol: up, error: true, ts: now() };
+        }
+        return out;
     }
 }
 
-/* ------------ TICKER BAR ------------ */
-async function cycleTickerFetch() {
+/* -----------------------------------------------------------
+   FETCH SINGLE QUOTE (Search use; uses cache, then network)
+   ----------------------------------------------------------- */
+async function getQuote(symbol) {
+    symbol = safeUpper(symbol);
+
+    const cached = quoteCache[symbol];
+    if (cached && isFresh(cached.ts)) return cached;
+
+    // Reuse multi-quote call pattern (single symbol)
+    const res = await fetchMultiQuotes([symbol]);
+    return res[symbol];
+}
+
+/* -----------------------------------------------------------
+   RENDER TICKER BAR
+   ----------------------------------------------------------- */
+async function renderTicker() {
     if (!tickerContent) return;
+    const data = await fetchMultiQuotes(topStocks);
 
-    while (true) {
-        let htmlParts = [];
+    const html = topStocks.map(sym => {
+        const q = data[safeUpper(sym)];
+        if (q.error)   return `<span>${sym}: Error</span>`;
+        if (q.invalid) return `<span>${sym}: N/A</span>`;
+        return `<span>${sym}: $${q.price}</span>`;
+    }).join(" ");
 
-        for (let i = 0; i < topStocks.length; i++) {
-            const sym = topStocks[i];
-            const q = await getQuote(sym);
-
-            let frag;
-            if (q.error) frag = `<span>${sym}: Error</span>`;
-            else if (q.invalid || !q.price) frag = `<span>${sym}: N/A</span>`;
-            else frag = `<span>${sym}: $${q.price}</span>`;
-
-            htmlParts.push(frag);
-            tickerContent.innerHTML = htmlParts.join(" ");
-
-            if (i < topStocks.length - 1) await sleep(TICKER_CYCLE_DELAY_MS);
-        }
-
-        await sleep(QUOTE_CACHE_TTL_MS);
-    }
+    tickerContent.innerHTML = html;
 }
-cycleTickerFetch();
 
-/* ------------ SEARCH + DETAIL ------------ */
+// initial + periodic refresh (cache prevents heavy network load)
+renderTicker();
+setInterval(renderTicker, QUOTE_CACHE_TTL_MS); // every 10 min
+
+/* -----------------------------------------------------------
+   SEARCH HANDLER
+   ----------------------------------------------------------- */
 searchInput.addEventListener("keypress", async (e) => {
     if (e.key !== "Enter") return;
-
     const symbol = safeUpper(e.target.value);
+
     if (!symbol) {
         stockInfo.innerHTML = "Please enter a stock symbol.";
         return;
@@ -89,7 +111,7 @@ searchInput.addEventListener("keypress", async (e) => {
     const q = await getQuote(symbol);
 
     if (q.error) {
-        stockInfo.innerHTML = `<p>Error fetching data. Try again.</p>`;
+        stockInfo.innerHTML = `<p>Error fetching data (network or CORS). Try again.</p>`;
         return;
     }
     if (q.invalid || !q.price) {
@@ -107,36 +129,57 @@ searchInput.addEventListener("keypress", async (e) => {
     await fetchChartData(symbol);
 });
 
-/* ------------ HISTORICAL DATA (Yahoo) ------------ */
+/* -----------------------------------------------------------
+   FETCH HISTORICAL DATA (Yahoo)
+   ----------------------------------------------------------- */
 async function fetchChartData(symbol) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1mo&interval=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`;
 
     try {
         const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        const chart = data.chart.result[0];
+        const result = data?.chart?.result?.[0];
 
-        if (!chart || !chart.timestamp) {
+        if (!result) {
             stockInfo.innerHTML += `<p style="color:red;">(No historical data.)</p>`;
             return;
         }
 
-        const dates = chart.timestamp.map(ts => {
-            const d = new Date(ts * 1000);
-            return `${d.getMonth() + 1}/${d.getDate()}`;
-        });
+        const { timestamp, indicators } = result;
+        const closes = indicators?.quote?.[0]?.close;
 
-        const prices = chart.indicators.quote[0].close;
+        if (!timestamp || !closes) {
+            stockInfo.innerHTML += `<p style="color:red;">(Incomplete historical data.)</p>`;
+            return;
+        }
 
-        renderChart(dates, prices, symbol);
-    } catch {
+        // Some close values can be null (market closed days) – filter
+        const points = [];
+        const labels = [];
+        for (let i = 0; i < timestamp.length; i++) {
+            const p = closes[i];
+            if (p == null) continue;
+            const d = new Date(timestamp[i] * 1000);
+            labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
+            points.push(Number(p));
+        }
+
+        renderChart(labels, points, symbol);
+    } catch (err) {
+        console.error("fetchChartData error:", err);
         stockInfo.innerHTML += `<p style="color:red;">(Failed to load chart.)</p>`;
     }
 }
 
-/* ------------ CHART RENDER ------------ */
+/* -----------------------------------------------------------
+   CHART RENDER
+   ----------------------------------------------------------- */
 function renderChart(labels, dataPoints, symbol) {
-    const ctx = document.getElementById('stockChart').getContext('2d');
+    const canvas = document.getElementById('stockChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
     if (stockChart) stockChart.destroy();
 
     stockChart = new Chart(ctx, {
